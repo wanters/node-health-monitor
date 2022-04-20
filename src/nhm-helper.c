@@ -64,10 +64,12 @@ nhm_helper_str_in_strv(const gchar *str,
   gboolean retval = FALSE;
   guint    idx    = 0;
 
+printf("appname: %s\n", str);
   if(strv != NULL)
   {
     for(idx = 0; (idx < g_strv_length(strv)) && (retval == FALSE); idx++)
     {
+printf("strv[%d]: %s\n", idx, strv[idx]);      
       retval = (g_strcmp0(str, strv[idx]) == 0);
     }
   }

@@ -385,9 +385,10 @@ nhm_systemd_unit_active_state_changed(NhmSystemdUnit *unit,
                                       NhmActiveState  new_state)
 {
   const NhmSystemdAppStatusChange *status_change = NULL;
+  
+printf("active_state -> new_state: [%d] -> [%d]\n", unit->active_state, new_state);
 
   status_change = &nhm_systemd_active_state_map[unit->active_state][new_state];
-
   if(status_change->do_callback == TRUE)
   {
     nhm_systemd_app_status_cb(unit->name, status_change->next_status);
@@ -411,9 +412,15 @@ nhm_systemd_unit_get_active_state(NhmSystemdUnit *unit)
 {
   GError         *error   = NULL;
   GVariant       *propval = NULL;
+  GVariant		 *pdict = NULL;
+  GVariant       *state1 = NULL;  
   const gchar    *state   = NULL;
   NhmActiveState  retval  = NHM_ACTIVE_STATE_UNKNOWN;
 
+#if 0
+// 使用Get方法获取Service激活状态
+// Get("org.freedesktop.systemd1.Unit","ActiveState")
+// 会触发某些service的UnitNew和UnitRemoved信号
   propval = g_dbus_connection_call_sync(nhm_systemd_conn,
                                         NHM_SYSTEMD_BUS_NAME,
                                         unit->path,
@@ -430,7 +437,9 @@ nhm_systemd_unit_get_active_state(NhmSystemdUnit *unit)
 
   if(error == NULL)
   {
-    g_variant_get_child(propval, 0, "&s", &state);
+    // 这里指定的类型不对
+    g_variant_get_child(propval, 0, "v", &state1);
+    g_variant_get (state1, "&s", &state);
     retval = nhm_systemd_active_state_string_to_enum(state);
     g_variant_unref(propval);
   }
@@ -444,6 +453,38 @@ nhm_systemd_unit_get_active_state(NhmSystemdUnit *unit)
             DLT_STRING("Reason:"); DLT_STRING(error->message));
     g_error_free(error);
   }
+#endif
+
+#if 0
+// 使用GetAll方法获取所有属性，从中查找ActiveState属性
+// GetAll("org.freedesktop.systemd1.Unit")
+// 依然会触发某些service的UnitNew和UnitRemoved信号
+pdict =  g_dbus_connection_call_sync(nhm_systemd_conn,
+                                        NHM_SYSTEMD_BUS_NAME,
+                                        unit->path,
+                                        NHM_SYSTEMD_PROP_IF,
+                                        "GetAll",
+                                        g_variant_new("(s)",
+                                                      NHM_SYSTEMD_UNIT_IF),
+                                        (GVariantType*) "(a{sv})",
+                                        G_DBUS_CALL_FLAGS_NONE,
+                                        -1,
+                                        NULL,
+                                        &error);
+
+  if(error == NULL)
+  {
+	  printf("return success\n");
+	  if(propval)
+		g_variant_unref(propval);
+  }
+  else
+  {
+	  
+    printf("Reason: %s\n", error->message);
+    g_error_free(error);
+  }
+#endif
 
   return retval;
 }
@@ -476,28 +517,30 @@ nhm_systemd_unit_added(GDBusConnection *connection,
   const gchar    *param_type = NULL;
   NhmSystemdUnit  search_unit;
   GSList         *list_item  = NULL;
+  gint number = 0;
 
   param_type = g_variant_get_type_string(parameters);
 
   if(g_strcmp0(param_type, "(so)") == 0)
   {
     g_variant_get_child(parameters, 0, "&s", &search_unit.name);
-
     if(g_str_has_suffix(search_unit.name, ".service") == TRUE)
     {
+		number++;
+		printf("added[%d]: %s\n", number, search_unit.name);
       list_item = g_slist_find_custom(nhm_systemd_observed_units,
                                       &search_unit,
                                       &nhm_systemd_find_unit_by_name);
       if(list_item == NULL)
       {
-        unit = g_new(NhmSystemdUnit, 1);
+        unit = g_new(NhmSystemdUnit, 1);      
         unit->name = g_strdup(search_unit.name);
-
-        g_variant_get_child(parameters, 1, "s", &unit->path);
-
+        g_variant_get_child(parameters, 1, "o", &unit->path);
+#if 0
+// 屏蔽使用Get方法获取ActiveState状态，通过订阅属性改变信号来获取ActiveState状态
         unit->active_state = nhm_systemd_unit_get_active_state(unit);
+#endif
         unit->sig_sub_id   = nhm_systemd_subscribe_properties_changed(unit);
-
         nhm_systemd_observed_units = g_slist_prepend(nhm_systemd_observed_units,
                                                      unit);
 
@@ -544,15 +587,18 @@ nhm_systemd_unit_removed(GDBusConnection *connection,
   GSList         *list_item  = NULL;
   const gchar    *param_type = NULL;
   NhmSystemdUnit  search_unit;
+  gint number = 0;
 
   param_type = g_variant_get_type_string(parameters);
-
   if(g_strcmp0(param_type, "(so)") == 0)
-  {
+  { 
     g_variant_get_child(parameters, 0, "&s", &search_unit.name);
-
     if(g_str_has_suffix(search_unit.name, ".service") == TRUE)
     {
+#if 0      
+		number++;
+		printf("removed[%d]: %s\n", number, search_unit.name);
+#else
       list_item = g_slist_find_custom(nhm_systemd_observed_units,
                                       &search_unit,
                                       &nhm_systemd_find_unit_by_name);
@@ -566,7 +612,8 @@ nhm_systemd_unit_removed(GDBusConnection *connection,
         nhm_systemd_free_unit(list_item->data);
         nhm_systemd_observed_units = g_slist_remove(nhm_systemd_observed_units,
                                                     list_item->data);
-      }
+      }  
+#endif
     }
   }
   else
@@ -611,10 +658,12 @@ nhm_systemd_unit_properties_changed(GDBusConnection *connection,
 
   param_type = g_variant_get_type_string(parameters);
 
+
   if(g_strcmp0(param_type, "(sa{sv}as)") == 0)
   {
-    g_variant_get_child(parameters, 2, "^a&s", &inv_props);
-
+#if 0
+// 屏蔽
+    g_variant_get_child(parameters, 1, "^a&s", &inv_props);
     if(nhm_helper_str_in_strv("ActiveState", (gchar**) inv_props) == TRUE)
     {
       active_state = nhm_systemd_unit_get_active_state(unit);
@@ -626,6 +675,71 @@ nhm_systemd_unit_properties_changed(GDBusConnection *connection,
     }
 
     g_free(inv_props);
+#else
+  GVariantIter *iter;
+  GVariantIter *iter1;
+  const gchar *string_1;
+  const gchar *name;
+  const gchar *param_type;
+  const gchar *content;
+  GVariant *state;
+
+// 索引0为 字符串
+    g_variant_get_child(parameters, 0, "&s", &string_1); 
+	  // printf("--> string: %s\n", string_1);
+
+// 索引1为 字典数组
+	  // printf("--> dict0\n");
+    g_variant_get_child (parameters, 1, "a{sv}", &iter);
+    while (g_variant_iter_next (iter, "{&sv}", &name, &state))
+    {
+      param_type = g_variant_get_type_string(state);
+      // printf("%s[%s]: ", name, param_type);
+
+      if(g_strcmp0(param_type, "s") == 0)
+      {
+        g_variant_get(state, "&s", &content);
+        // printf("%s", content);   
+        if(g_strcmp0(name, "ActiveState") == 0)
+        {
+          active_state = nhm_systemd_active_state_string_to_enum(content);
+          printf("1. ActiveState: %d\n", active_state);
+        }
+      }
+      // printf("\n");
+
+      g_variant_unref (state);
+    }
+    g_variant_iter_free (iter);
+
+    const gchar *string3;
+// 索引2为 字符串数组
+	  // printf("--> dict1\n");
+    g_variant_get_child(parameters, 2, "as", &iter1);
+    while(g_variant_iter_loop(iter1, "&s", &string3))
+    {
+      // printf("%s\n", string3);
+    }
+    g_variant_iter_free (iter1);
+
+    // printf("--> unit->name: %s\n", unit->name);
+    // printf("--> unit->path: %s\n", unit->path); 
+    printf("2. unit->active_state: %d\n", unit->active_state); 
+
+    //if(nhm_helper_str_in_strv("ActiveState", (gchar**) inv_props) == TRUE)
+    {
+      // active_state = nhm_systemd_unit_get_active_state(unit);
+      if(unit->active_state >= NHM_ACTIVE_STATE_LAST)
+      {
+        unit->active_state = NHM_ACTIVE_STATE_UNKNOWN;
+      }
+      if(active_state != unit->active_state)
+      {
+        nhm_systemd_unit_active_state_changed(unit, active_state);
+      }
+    }
+
+#endif
   }
   else
   {
@@ -735,7 +849,7 @@ nhm_systemd_connect(NhmSystemdAppStatusCb app_status_cb)
                                            NULL,
                                            NULL);
   }
-
+#if 1
   /* Step 4: Subscribe. Without, PropertiesChanged isn't send */
   if(retval == TRUE)
   {
@@ -767,7 +881,7 @@ nhm_systemd_connect(NhmSystemdAppStatusCb app_status_cb)
       g_error_free(error);
     }
   }
-
+#endif
   /* Step 5: Retrieve all currently known service units from systemd. */
   if(retval == TRUE)
   {

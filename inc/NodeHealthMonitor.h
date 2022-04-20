@@ -40,7 +40,7 @@ extern "C"
  */
 #define NHM_INTERFACE_VERSION  0x01000001U
 
-#define NHM_BUS_TYPE    2                               /**< Defines bus type according to GBusType  */
+#define NHM_BUS_TYPE    1                               /**< Defines bus type according to GBusType  */
 #define NHM_BUS_NAME    "org.genivi.NodeHealthMonitor"  /**< The bus name of the Node Health Monitor */
 #define NHM_INFO_OBJECT "/org/genivi/NodeHealthMonitor" /**< D-Bus object path                       */
 

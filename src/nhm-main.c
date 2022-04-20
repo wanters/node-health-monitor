@@ -641,6 +641,8 @@ nhm_main_register_app_status(const gchar    *name,
   NhmCurrentFailedApp *app_on_list    = NULL;
   gboolean             app_running    = FALSE;
 
+printf("AppName, Status: %s[%d]\n", name, status);
+
   DLT_LOG(nhm_helper_trace_ctx,
           DLT_LOG_INFO,
           DLT_STRING("NHM: Processing 'RegisterAppStatus' call");
@@ -670,9 +672,8 @@ nhm_main_register_app_status(const gchar    *name,
 
   /* Start internal processing. Check if app. is on current failed list. */
   app_on_list = nhm_main_find_current_failed_app(name);
-
   if((app_on_list == NULL) && (status == NhmAppStatus_Failed))
-  {
+  {   
     /* App. not on list and the new status is failed. Add it to the list! */
     app_on_list         = g_new(NhmCurrentFailedApp, 1);
     app_on_list->name   = g_strdup(name);
@@ -699,7 +700,7 @@ nhm_main_register_app_status(const gchar    *name,
             DLT_STRING("AppName:");    DLT_STRING(app_info->name);
             DLT_STRING("Fail count:"); DLT_UINT(app_info->failcount));
 
-    nhm_main_write_data();
+    nhm_main_write_data();    
     nhm_main_check_failed_app_restart();
   }
   else
@@ -1100,6 +1101,7 @@ nhm_main_timer_userland_check_cb(gpointer user_data)
           DLT_LOG_INFO,
           DLT_STRING("NHM: Userland check started."));
 
+printf("userland check\n");
   /* Check if monitored files exist */
   if(monitored_files != NULL)
   {
@@ -1107,11 +1109,13 @@ nhm_main_timer_userland_check_cb(gpointer user_data)
         (check_idx < g_strv_length(monitored_files)) && (ul_ok == TRUE);
         check_idx++)
     {
+printf("monitored_files: %s\n", monitored_files[check_idx]);      
       ul_ok = nhm_does_file_exist(monitored_files[check_idx]);
     }
 
     if(ul_ok == FALSE)
     {
+printf("monitored_files ul_ok: %d\n", ul_ok);      
       DLT_LOG(nhm_helper_trace_ctx,
               DLT_LOG_INFO,
               DLT_STRING("NHM: Userland check failed.");
@@ -2292,6 +2296,8 @@ main(void)
 {
   int pcl_ret = 0;
 
+  printf("NHM start...\n");
+
   /* Register NHM for DLT */
   DLT_REGISTER_APP("NHM", "Node Health Monitor");
   DLT_REGISTER_CONTEXT(nhm_helper_trace_ctx, "016", "Context for the NHM");
@@ -2301,7 +2307,6 @@ main(void)
           DLT_LOG_INFO,
           DLT_STRING("NHM: NodeHealthMonitor started."),
           DLT_STRING("Version:"), DLT_STRING(VERSION ));
-
 #if !GLIB_CHECK_VERSION(2,36,0)
     /* Initialize glib for using "g" types. Only necessary until version 2.36 */
     g_type_init();
